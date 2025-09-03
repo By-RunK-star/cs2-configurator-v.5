@@ -4,7 +4,7 @@ import streamlit as st
 # Загружаем базу сборок
 @st.cache_data
 def load_data():
-    return pd.read_csv("builds_full.csv")
+    return pd.read_csv("builds.csv")
 
 df = load_data()
 
@@ -62,6 +62,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
 
