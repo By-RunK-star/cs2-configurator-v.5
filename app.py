@@ -5,7 +5,7 @@ st.set_page_config(page_title="CS2 Конфигуратор", page_icon="🎮")
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("builds_full.csv")
+    df = pd.read_csv("builds.csv")
 
     # Унификация названий столбцов
     def ensure_col(df, canon, variants):
@@ -107,6 +107,7 @@ st.markdown("---")
 st.subheader("💖 Поддержи проект")
 st.markdown("👉 [💸 DonatPay](https://www.donationalerts.com/r/melevik)", unsafe_allow_html=True)
 st.caption("Чем больше поддержка — тем быстрее обновляется и расширяется база.")
+
 
 
 
