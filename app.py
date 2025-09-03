@@ -4,7 +4,7 @@ import streamlit as st
 # Загружаем базу сборок
 @st.cache_data
 def load_data():
-    return pd.read_csv("builds.csv")
+    return pd.read_csv("builds_full.csv")
 
 df = load_data()
 
@@ -12,19 +12,19 @@ df = load_data()
 st.title("⚙️ Конфигуратор CS2")
 st.write("Выбери свой ПК и получи готовые настройки для CS2!")
 
-cpu = st.selectbox("🖥 Выбери процессор:", sorted(df["CPU"].unique()))
-gpu = st.selectbox("🎮 Выбери видеокарту:", sorted(df["GPU"].unique()))
-ram = st.selectbox("💾 Выбери объём ОЗУ:", sorted(df["RAM"].unique()))
+cpu = st.selectbox("🖥 CPU:", sorted(df["CPU"].unique()))
+gpu = st.selectbox("🎮 GPU:", sorted(df["GPU"].unique()))
+ram = st.selectbox("💾 RAM:", sorted(df["RAM"].unique()))
 
 # Кнопка поиска
-if st.button("🔎 Найти настройки"):
+if st.button("🔍 Найти настройки"):
     result = df[
         (df["CPU"] == cpu) &
         (df["GPU"] == gpu) &
         (df["RAM"] == ram)
     ]
 
-    st.markdown("---")  # разделительная линия
+    st.markdown("---")  # разделитель
 
     if not result.empty:
         row = result.to_dict(orient="records")[0]
@@ -36,26 +36,32 @@ if st.button("🔎 Найти настройки"):
         🎮 **GPU:** {row['GPU']}  
         💾 **RAM:** {row['RAM']}  
 
-        ⚙️ **Настройки игры:** {row['Game Settings']}  
-        🚀 **Параметры запуска:** {row['Launch Options']}  
-        🎛 **Панель управления:** {row['Control Panel']}  
+        ⚙️ **Настройки игры:**  
+        {row['Game Settings']}  
 
-        🔗 **Источник:** {row['Source']}  
+        🚀 **Параметры запуска:**  
+        `{row['Launch Options']}`  
+
+        🎛 **Панель управления (NVIDIA/AMD):**  
+        {row['Control Panel']}  
+
+        🪟 **Оптимизация Windows (по желанию):**  
+        {row['Windows Optimization']}  
+
+        🔗 **Источник:** {row['Source']}
         """)
     else:
         st.error("❌ Подходящей конфигурации не найдено.")
 
-# Кнопка поддержки
+# Кнопка доната
 st.markdown("---")
-st.subheader("💖 Поддержи проект")
+st.subheader("💖 Поддержи проект, чтобы обновления выходили быстрее")
 st.markdown(
     """
-    Если тебе помог конфигуратор — поддержи разработку:  
     👉 [💸 DonatPay](https://www.donationalerts.com/r/melevik)  
     """,
     unsafe_allow_html=True
 )
-
 
 
 
