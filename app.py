@@ -1,331 +1,201 @@
+import re
+import requests
 import pandas as pd
 import streamlit as st
 
-# -------------------------
-# БАЗОВЫЕ НАСТРОЙКИ СТРАНИЦЫ
-# -------------------------
-st.set_page_config(page_title="CS2 Конфигуратор", page_icon="🎮", layout="centered")
+# feedparser — опционально (для YouTube RSS). Без него будет fallback.
+try:
+    import feedparser  # type: ignore
+    HAS_FEEDPARSER = True
+except Exception:
+    HAS_FEEDPARSER = False
 
-# -------------------------
-# СТИЛИ (тёмная карточка, соц-иконки в цвет брендов, донат-бокс с мягкой пульсацией)
-# -------------------------
-st.markdown("""
-<style>
-/* Общий контейнер */
-.main { padding-top: 10px; }
+st.set_page_config(page_title="CS2 Конфигуратор", page_icon="🎯", layout="centered")
 
-/* Тёмная карточка с настройками */
-.cs2-card {
-  background: #111;
-  color: #eee;
-  border: 1px solid #222;
-  border-radius: 14px;
-  padding: 18px 18px 10px 18px;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.03) inset, 0 8px 24px rgba(0,0,0,0.45);
-  font-size: 15px;
-  line-height: 1.55;
-}
-.cs2-card h3 {
-  margin: 0 0 10px 0;
-  font-size: 18px;
-  font-weight: 700;
-}
+# ----------------------------- СТИЛИ (аккуратно, ничего лишнего) -----------------------------
+st.markdown(
+    """
+    <style>
+      /* Карточка результатов — тёмный фон */
+      .cs2-card {
+        background: #0f1116;
+        border: 1px solid #222630;
+        border-radius: 10px;
+        padding: 18px 18px 10px 18px;
+        color: #e6e6e6;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+      .cs2-card code { background: #141820; color: #e6e6e6; }
+      .cs2-key { color:#9ecbff; font-weight:600; }
 
-/* Коды и моно */
-.cs2-card code, .cs2-card pre {
-  background: #0d0d0d;
-  color: #cfe3ff;
-  border: 1px solid #1f1f1f;
-  border-radius: 8px;
-  padding: 6px 8px;
-  display: block;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-}
+      /* Пульсирующая жёлтая плашка доната — мягкая */
+      .donate-pulse {
+        position: relative;
+        background: linear-gradient(90deg, #2a2e36, #1f232b);
+        border: 1px solid #3a3f4a;
+        border-radius: 10px;
+        padding: 14px 16px;
+        color: #f9e79f;
+        overflow: hidden;
+      }
+      .donate-pulse::after {
+        content: "";
+        position: absolute;
+        left: -50%;
+        top: 0;
+        width: 200%;
+        height: 100%;
+        background: radial-gradient(circle at 50% 50%, rgba(255, 220, 70, .20), transparent 45%);
+        animation: pulse 2.8s ease-in-out infinite;
+        pointer-events: none;
+      }
+      @keyframes pulse {
+        0%   { transform: translateX(-20%); opacity: .45; }
+        50%  { transform: translateX( 20%); opacity: .25; }
+        100% { transform: translateX(-20%); opacity: .45; }
+      }
+      .donate-link a { color:#ffd54d; text-decoration:none; font-weight:700; }
+      .donate-link a:hover { text-decoration: underline; }
 
-/* Социальные ссылки (иконки SVG) */
-.social-wrap {
-  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-}
-.social-wrap .social-title {
-  font-weight: 700; margin-right: 8px;
-}
-.social-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid #1f1f1f;
-  background: #121212;
-  color: #eaeaea !important;
-  text-decoration: none !important;
-  font-weight: 600;
-  transition: transform .08s ease, box-shadow .15s ease, background .2s ease, filter .2s ease;
-}
-.social-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,0.35); background: #151515; }
-.social-btn svg { width: 18px; height: 18px; }
+      /* Соц-кнопки в цветах платформ */
+      .socials { display:flex; gap:10px; flex-wrap:wrap; }
+      .btn-social {
+        display:inline-block; padding:10px 14px; border-radius:8px; color:#fff; font-weight:600;
+        text-decoration:none; border:0; transition: transform .06s ease-in-out; font-size:14px;
+      }
+      .btn-social:hover { transform: translateY(-1px); }
+      .btn-yt   { background:#FF0000; }
+      .btn-tktk { background:#000000; border:1px solid #222; }
+      .btn-tktk span { background: linear-gradient(90deg, #25F4EE, #FE2C55); -webkit-background-clip:text; background-clip:text; color:transparent; }
+      .btn-tw   { background:#9146FF; }
 
-/* Брендированные цвета */
-.social-btn.tiktok {
-  background: #000000;
-  border-color: #ff0050;
-}
-.social-btn.tiktok:hover {
-  filter: drop-shadow(0 0 8px rgba(255,0,80,0.35));
-}
-.social-btn.youtube {
-  background: #ff0000;
-  border-color: #cc0000;
-}
-.social-btn.youtube:hover {
-  background: #cc0000;
-  filter: drop-shadow(0 0 8px rgba(255,0,0,0.35));
-}
-.social-btn.twitch {
-  background: #9146ff;
-  border-color: #772ce8;
-}
-.social-btn.twitch:hover {
-  background: #772ce8;
-  filter: drop-shadow(0 0 8px rgba(145,70,255,0.35));
-}
+      /* Встраиваемые блоки (iframe) в контейнере */
+      .embed-box {
+        border: 1px solid #222630; border-radius: 10px; overflow:hidden;
+        background:#0f1116; margin-bottom: 8px;
+      }
 
-/* Донат бокс — мягкая жёлтая пульсация (без вырвиглаз) */
-.donate-box {
-  position: relative;
-  border-radius: 14px;
-  padding: 16px;
-  border: 1px solid #2a2a2a;
-  background: linear-gradient(180deg, rgba(255,230,120,0.09), rgba(0,0,0,0.04));
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35) inset;
-  color: #f6f1ce;
-  margin-top: 8px;
-}
-.donate-pulse {
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  background: radial-gradient(60% 60% at 50% 10%, rgba(255,240,120,0.20), rgba(0,0,0,0.0));
-  animation: pulseGlow 2.8s ease-in-out infinite;
-  pointer-events: none;
-  filter: blur(1px);
-  opacity: 0.9;
-}
-@keyframes pulseGlow {
-  0% { opacity: 0.18; }
-  50% { opacity: 0.32; }
-  100% { opacity: 0.18; }
-}
-.donate-title { font-weight: 800; font-size: 16px; margin-bottom: 6px; }
-.donate-link a {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 12px; border-radius: 10px; border: 1px solid #3b3b3b;
-  background: #14110b; color: #ffe066 !important; text-decoration: none !important; font-weight: 700;
-}
-.donate-link a:hover { background: #1a160d; }
+      /* Маленький серый дисклеймер */
+      .hint { color:#9aa4b2; font-size:13px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-/* Блок предупреждений */
-.warn-box {
-  border: 1px dashed #4a3;
-  background: rgba(70, 130, 50, 0.08);
-  color: #cfe9c3;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-top: 8px;
-}
-.warn-title { font-weight: 700; margin-bottom: 4px; }
-
-/* Блок AMD-важно */
-.amd-box {
-  border: 1px dashed #a53;
-  background: rgba(160, 70, 50, 0.08);
-  color: #f0d0c7;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-top: 8px;
-}
-.amd-title { font-weight: 800; margin-bottom: 4px; color: #ffb7a1; }
-
-/* Блок Intel-важно */
-.intel-box {
-  border: 1px dashed #2a74d6;
-  background: rgba(40, 110, 210, 0.08);
-  color: #cfe1fb;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-top: 8px;
-}
-.intel-title { font-weight: 800; margin-bottom: 4px; color: #a5c4ff; }
-
-/* Кнопки в одну линию */
-.button-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------------
-# ЗАГРУЗКА БАЗЫ
-# -------------------------
+# ------------------------------------ ЗАГРУЗКА ДАННЫХ ---------------------------------------
 @st.cache_data
 def load_data():
     df = pd.read_csv("builds.csv")
 
-    # Нормализация названий столбцов
-    def ensure_col(df_, canon, variants):
+    # Нормализуем названия столбцов → приводим к каноническим
+    def ensure_col(df, canon, variants):
         for v in variants:
-            if v in df_.columns:
-                df_[canon] = df_[v]
+            if v in df.columns:
+                df[canon] = df[v]
                 break
-        if canon not in df_.columns:
-            df_[canon] = ""
-        return df_
+        if canon not in df.columns:
+            df[canon] = ""
+        return df
 
-    df = ensure_col(df, "CPU", ["CPU", "Processor"])
-    df = ensure_col(df, "GPU", ["GPU", "Graphics"])
-    df = ensure_col(df, "RAM", ["RAM", "Memory"])
     df = ensure_col(df, "Game Settings", ["Game Settings", "Settings", "GameSettings"])
     df = ensure_col(df, "Launch Options", ["Launch Options", "Launch", "Params", "LaunchOptions"])
     df = ensure_col(df, "Control Panel", ["Control Panel", "ControlPanel", "Driver Settings", "Driver"])
     df = ensure_col(df, "Windows Optimization", ["Windows Optimization", "Windows Optimizations", "Windows", "Windows Opt"])
     df = ensure_col(df, "FPS Estimate", ["FPS Estimate", "FPS", "FPS Range", "Estimate"])
-    df = ensure_col(df, "Source", ["Source", "Origin"])
+    df = ensure_col(df, "Source", ["Source"])
 
-    # Приведём RAM к виду "N GB"
-    df["RAM"] = df["RAM"].astype(str).str.replace("GB", " GB", regex=False)
-    df["RAM"] = df["RAM"].str.replace("  ", " ", regex=False).str.strip()
+    # RAM → привести к формату "16 GB"
+    if "RAM" in df.columns:
+        df["RAM"] = (
+            df["RAM"]
+            .astype(str)
+            .str.replace("ГБ", " GB", regex=False)
+            .str.replace("GB", " GB", regex=False)
+            .str.replace("  ", " ", regex=False)
+            .str.strip()
+        )
 
     return df
 
 df = load_data()
 
-# -------------------------
-# ОЧИСТКА ПАРАМЕТРОВ ЗАПУСКА
-# -------------------------
+# Очистка параметров запуска от неподдерживаемых/бесполезных флагов
 def clean_launch_options(s: str) -> str:
     if not isinstance(s, str):
         return ""
     tokens = s.split()
-    banned = {"-novid", "-nojoy"}  # не используем для CS2
+    banned = {"-novid", "-nojoy"}  # Убрали неактуальные для CS2
     tokens = [t for t in tokens if t not in banned]
     cleaned = " ".join(tokens)
     while "  " in cleaned:
         cleaned = cleaned.replace("  ", " ")
     return cleaned.strip()
 
-# -------------------------
-# ШАПКА
-# -------------------------
-st.title("CS2 Конфигуратор")
-st.caption("Подбери готовые настройки: параметры игры, драйвера, запуска и Windows-оптимизации. Нет лишних флагов, всё по делу.")
+# ---------------------------------------- ШАПКА ---------------------------------------------
+st.title("⚙️ CS2 Конфигуратор")
+st.caption("Подбери готовые настройки по своей сборке: игра • панель драйвера • параметры запуска • Windows-оптимизации.")
 
-# Социальные ссылки — оставлено расположение, окрашены под бренды
-st.markdown("""
-<div class="social-wrap">
-  <div class="social-title">Подписывайся, чтобы следить за актуальными обновлениями и контентом автора:</div>
-
-  <a class="social-btn tiktok" href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank" rel="noopener">
-    <svg viewBox="0 0 24 24" fill="#fff"><path d="M12.6 3.2c.7 2.3 2.6 4.1 4.9 4.6v3c-1.6.1-3.1-.3-4.4-1.2v5.8c0 3.9-3.2 7-7.1 7-1.7 0-3.3-.6-4.5-1.6a7 7 0 0 1 8.8-10.8V3.2h2.3z"/></svg>
-    TikTok
-  </a>
-
-  <a class="social-btn youtube" href="https://youtube.com/@melevik-avlaron?si=kRXrCD7GUrVnk478" target="_blank" rel="noopener">
-    <svg viewBox="0 0 24 24" fill="#fff"><path d="M21.6 7.2c.3 1.1.4 2.3.4 4s-.1 2.9-.4 4c-.3 1-1 1.7-2 2-1.1.3-5.2.4-7.6.4s-6.5-.1-7.6-.4c-1-.3-1.7-1-2-2C2.1 14.1 2 12.9 2 11.2s.1-2.9.4-4c.3-1 1-1.7 2-2C5.5 4 9.6 3.9 12 3.9s6.5.1 7.6.4c1 .3 1.7 1 2 2zM10 9.2v4l4-2-4-2z"/></svg>
-    YouTube
-  </a>
-
-  <a class="social-btn twitch" href="https://m.twitch.tv/melevik/home" target="_blank" rel="noopener">
-    <svg viewBox="0 0 24 24" fill="#fff"><path d="M4 3h17v11.5l-4 4H12l-2.5 2.5H7V18H4V3zm3 2v9h3v2h2l2-2h3l2-2V5H7z"/></svg>
-    Twitch
-  </a>
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown("---")
-
-# -------------------------
-# ФИЛЬТРЫ
-# -------------------------
+# Фильтры
 col1, col2, col3 = st.columns(3)
 with col1:
-    cpu = st.selectbox("Процессор (CPU):", sorted(df["CPU"].dropna().unique()))
+    cpu = st.selectbox("🖥 Процессор (CPU)", sorted(df["CPU"].dropna().unique()))
 with col2:
-    gpu = st.selectbox("Видеокарта (GPU):", sorted(df["GPU"].dropna().unique()))
+    gpu = st.selectbox("🎮 Видеокарта (GPU)", sorted(df["GPU"].dropna().unique()))
 with col3:
-    ram = st.selectbox("ОЗУ (RAM):", sorted(df["RAM"].dropna().unique()))
+    ram = st.selectbox("💾 ОЗУ (RAM)", sorted(df["RAM"].dropna().unique()))
 
-# -------------------------
-# ПОИСК
-# -------------------------
-if st.button("Найти настройки"):
+# Предупреждение про одноканал/двухканал
+st.info("ℹ️ Если у вас **одноканальная** память — ожидайте на 10–30% ниже FPS. **Двухканал** даёт ощутимый прирост.", icon="ℹ️")
+
+# Кнопки действий
+c1, c2 = st.columns([1, 1])
+with c1:
+    find_clicked = st.button("🔍 Найти настройки")
+with c2:
+    if st.button("🔄 Обновить базу (builds.csv)"):
+        st.cache_data.clear()
+        st.rerun()
+
+# ------------------------------------- РЕЗУЛЬТАТ ПОИСКА -------------------------------------
+if find_clicked:
     result = df[(df["CPU"] == cpu) & (df["GPU"] == gpu) & (df["RAM"] == ram)]
-
     st.markdown("---")
-
     if result.empty:
-        st.error("Подходящая конфигурация не найдена в базе. Обнови базу и попробуй снова.")
+        st.error("❌ Подходящей конфигурации не найдено в базе.")
     else:
         row = result.iloc[0].to_dict()
         launch_clean = clean_launch_options(row.get("Launch Options", ""))
 
-        # Карточка рекомендаций (чёрная)
+        st.subheader("✅ Рекомендованные настройки")
+        # Тёмная карточка
         st.markdown('<div class="cs2-card">', unsafe_allow_html=True)
-        st.markdown(f"""
-<h3>Рекомендованные настройки</h3>
+        st.markdown(
+            f"""
+<span class="cs2-key">🖥 Процессор:</span> {row.get('CPU','')}  
+<span class="cs2-key">🎮 Видеокарта:</span> {row.get('GPU','')}  
+<span class="cs2-key">💾 ОЗУ:</span> {row.get('RAM','')}
 
-<strong>Процессор:</strong> {row.get('CPU', '—')}  
-<strong>Видеокарта:</strong> {row.get('GPU', '—')}  
-<strong>ОЗУ:</strong> {row.get('RAM', '—')}
+**🎮 Настройки игры:**  
+{row.get('Game Settings','')}
 
-<strong>Настройки игры:</strong>  
-{row.get('Game Settings', '—')}
+**🚀 Параметры запуска (очищено):**  
+<code>{launch_clean}</code>
 
-<strong>Параметры запуска (очищенные):</strong>
-<pre><code>{launch_clean}</code></pre>
+**🎛 Панель драйвера (NVIDIA/AMD):**  
+{row.get('Control Panel','')}
 
-<strong>Панель драйвера (NVIDIA/AMD):</strong>  
-{row.get('Control Panel', '—')}
+**🪟 Оптимизация Windows (по желанию):**  
+{row.get('Windows Optimization','')}
 
-<strong>Оптимизация Windows (по желанию):</strong>  
-{row.get('Windows Optimization', '—')}
-
-<strong>Ожидаемый FPS:</strong> {row.get('FPS Estimate', '—')}  
-<strong>Источник:</strong> {row.get('Source', '—')}
-""", unsafe_allow_html=True)
+**📊 Ожидаемый FPS:** {row.get('FPS Estimate','—')}  
+**🔗 Источник:** {row.get('Source','')}
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Предупреждение про одноканал/двухканал
-        st.markdown("""
-<div class="warn-box">
-  <div class="warn-title">Память: двухканал быстрее.</div>
-  Если у тебя установлена ОЗУ в одноканальном режиме (одна планка), FPS будет ниже.
-  Для максимально стабильного FPS ставь две одинаковые планки и включай двухканальный режим.
-</div>
-""", unsafe_allow_html=True)
-
-        # Важно для AMD — глобальные тумблеры
-        st.markdown("""
-<div class="amd-box">
-  <div class="amd-title">Важно для AMD Radeon (глобальные настройки):</div>
-  • Не включай глобально: Anti-Lag / Anti-Lag+, Chill, Boost, Enhanced Sync, Radeon Super Resolution (RSR), Virtual Super Resolution (VSR). Создавай профиль только для CS2.<br>
-  • Texture Filtering Quality ставь «Performance» в профиле CS2, глобально оставь «Standard/Quality».<br>
-  • Radeon Image Sharpening, Surface Format Optimization — включай только если понимаешь эффект и тестируешь в профиле игры.<br>
-  • Глобальный «Максимальная производительность» не нужен — видеокарта будет держать высокие частоты везде. Делай это только в профиле CS2.
-</div>
-""", unsafe_allow_html=True)
-
-        # Важно для Intel — отдельный блок
-        st.markdown("""
-<div class="intel-box">
-  <div class="intel-title">Важно для Intel Graphics / Arc:</div>
-  • В Intel Graphics Command Center / Arc Control создавай профиль для CS2. Глобально оставь «Balanced», а для CS2 включай «Performance».<br>
-  • Не включай глобально: Vertical Sync, Frame Rate Limit, Integer Scaling — делай это в профиле CS2 при необходимости.<br>
-  • На ноутбуках в Windows → Система → Дисплей → Графика назначь для CS2 «Высокая производительность» (dGPU), чтобы игра не запускалась на встроенном iGPU.<br>
-  • Если используешь апскейлеры/шарпенинг — включай их только в профиле CS2 и проверяй лаг/стабильность.
-</div>
-""", unsafe_allow_html=True)
-
-        # Скачать профиль
+        # Кнопка скачать профиль .txt
         profile_txt = (
             f"CPU: {row.get('CPU','')}\n"
             f"GPU: {row.get('GPU','')}\n"
@@ -337,32 +207,130 @@ if st.button("Найти настройки"):
             f"FPS Estimate: {row.get('FPS Estimate','—')}\n"
             f"Source: {row.get('Source','')}\n"
         )
-        st.download_button("Скачать профиль (.txt)", data=profile_txt, file_name="cs2_profile.txt")
+        st.download_button("💾 Скачать профиль (.txt)", data=profile_txt, file_name="cs2_profile.txt")
 
-st.markdown("---")
+# ----------------------------------- ВАЖНЫЕ ПРЕДУПРЕЖДЕНИЯ ----------------------------------
+with st.expander("⚠️ Важно: не меняйте опасные глобальные тумблеры драйвера"):
+    st.markdown(
+        """
+- **AMD**: не включайте **Anti-Lag+**, **Chill**, **Radeon Boost**, **Radeon Super Resolution** **глобально** — задавайте **только для CS2** в профиле игры.  
+- **NVIDIA**: «**Режим управления электропитанием → Максимальная производительность**» включайте **только в профиле CS2**, а не глобально.  
+- **Intel (iGPU)**: не включайте глобально **V-Sync**, **тройную буферизацию**; задавайте параметры **пер-приложение**.  
+- Параметры запуска **очищены**: мы автоматически убираем флаги `-novid` и `-nojoy`, т.к. они неактуальны для CS2.
+        """
+    )
 
-# -------------------------
-# КНОПКА ОБНОВЛЕНИЯ БАЗЫ (как было)
-# -------------------------
-c1, c2 = st.columns([1, 3])
-with c1:
-    if st.button("Обновить базу"):
-        st.cache_data.clear()
-        st.rerun()
-with c2:
-    st.caption("Если ты обновил файл builds.csv в репозитории — нажми «Обновить базу», чтобы подтянуть актуальные данные.")
-
-# -------------------------
-# ПОДДЕРЖИ ПРОЕКТ (мягкая жёлтая пульсация, без лишних изменений)
-# -------------------------
-st.markdown("""
-<div class="donate-box">
-  <div class="donate-pulse"></div>
-  <div class="donate-title">Поддержи проект — и попади в следующий ролик!</div>
-  Каждая поддержка ускоряет обновления базы и улучшения конфигуратора. Имена донатеров мы благодарно упоминаем в следующем видео.
-  <div class="donate-link" style="margin-top:8px;">
-    <a href="https://www.donationalerts.com/r/melevik" target="_blank" rel="noopener">Перейти к поддержке</a>
+# ------------------------------------- ПОДДЕРЖИ ПРОЕКТ --------------------------------------
+st.markdown(
+    """
+<div class="donate-pulse">
+  <div style="font-weight:700; margin-bottom:6px;">Поддержи проект</div>
+  <div class="donate-link">
+    Каждый, кто поддержит рублём, попадёт в **следующий ролик** в благодарности.
+    <br/>👉 <a href="https://www.donationalerts.com/r/melevik" target="_blank">DonatPay (DonationAlerts)</a>
   </div>
 </div>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
+# ------------------------------------ СОЦИАЛЬНЫЕ СЕТИ ---------------------------------------
+st.markdown("#### Подписывайся, чтобы следить за актуальными обновлениями и контентом автора")
+st.markdown(
+    """
+<div class="socials">
+  <a class="btn-social btn-tktk" href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank">TikTok <span>★</span></a>
+  <a class="btn-social btn-yt"   href="https://youtube.com/@melevik-avlaron" target="_blank">YouTube</a>
+  <a class="btn-social btn-tw"   href="https://m.twitch.tv/melevik/home" target="_blank">Twitch</a>
+</div>
+<p class="hint">Спасибо за подписку — это помогает развивать базу и выпускать обновления быстрее.</p>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -------------------------------------- TWITCH EMBED -----------------------------------------
+with st.expander("🎥 Прямо сейчас на Twitch (авто)"):
+    st.markdown(
+        """
+<div class="embed-box">
+  <div id="twitch-embed"></div>
+</div>
+<script>
+  (function() {
+    const parent = window.location.hostname;
+    const html = `
+      <iframe
+        src="https://player.twitch.tv/?channel=melevik&parent=${parent}"
+        height="420" width="100%" frameborder="0" scrolling="no" allowfullscreen="true">
+      </iframe>`;
+    const box = document.getElementById('twitch-embed');
+    if (box) box.innerHTML = html;
+  })();
+</script>
+<p class="hint">Если «оффлайн» — заглядывай позже, стримы регулярно!</p>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# -------------------------------------- YOUTUBE EMBED ----------------------------------------
+def resolve_youtube_channel_id(handle_url: str) -> str | None:
+    """Пробуем вытащить channel_id по @handle без API-ключа."""
+    try:
+        html = requests.get(handle_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).text
+        m = re.search(r'"channelId":"(UC[0-9A-Za-z_-]{22})"', html)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+def get_latest_non_shorts_video_id(channel_handle_url: str) -> str | None:
+    """Берём последнее НЕ-Shorts видео через RSS; если нет feedparser — вернём None."""
+    channel_id = resolve_youtube_channel_id(channel_handle_url)
+    if not channel_id:
+        return None
+    if not HAS_FEEDPARSER:
+        return None
+    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    try:
+        feed = feedparser.parse(feed_url)
+        for entry in feed.entries:
+            title = entry.get("title", "")
+            link = entry.get("link", "")
+            # Грубый фильтр шортов по названию/ссылке
+            if "short" in title.lower() or "/shorts/" in link.lower():
+                continue
+            # Достаём ID
+            m = re.search(r"v=([0-9A-Za-z_-]{11})", link)
+            if m:
+                return m.group(1)
+        return None
+    except Exception:
+        return None
+
+with st.expander("📺 Новое видео на YouTube (не Shorts)"):
+    yt_handle = "https://youtube.com/@melevik-avlaron"
+    vid_id = get_latest_non_shorts_video_id(yt_handle)
+    if vid_id:
+        st.markdown(
+            f"""
+<div class="embed-box">
+  <iframe width="100%" height="420"
+    src="https://www.youtube.com/embed/{vid_id}"
+    title="Последнее видео"
+    frameborder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowfullscreen></iframe>
+</div>
+<p class="hint">Если ролик не загрузился — открой канал: <a href="{yt_handle}" target="_blank">YouTube / @melevik-avlaron</a></p>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"""
+<p class="hint">Не удалось получить последнее видео автоматически. Перейди на канал:</p>
+<div class="embed-box" style="padding:16px;">
+  <a class="btn-social btn-yt" href="{yt_handle}" target="_blank">Открыть канал YouTube</a>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
