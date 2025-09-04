@@ -7,7 +7,7 @@ import streamlit as st
 st.set_page_config(page_title="CS2 Конфигуратор", page_icon="🎮", layout="centered")
 
 # -------------------------
-# СТИЛИ (тёмная карточка, соц-иконки, донат-бокс с мягкой пульсацией)
+# СТИЛИ (тёмная карточка, соц-иконки в цвет брендов, донат-бокс с мягкой пульсацией)
 # -------------------------
 st.markdown("""
 <style>
@@ -62,10 +62,35 @@ st.markdown("""
   color: #eaeaea !important;
   text-decoration: none !important;
   font-weight: 600;
-  transition: transform .08s ease, box-shadow .15s ease, background .2s ease;
+  transition: transform .08s ease, box-shadow .15s ease, background .2s ease, filter .2s ease;
 }
 .social-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,0.35); background: #151515; }
 .social-btn svg { width: 18px; height: 18px; }
+
+/* Брендированные цвета */
+.social-btn.tiktok {
+  background: #000000;
+  border-color: #ff0050;
+}
+.social-btn.tiktok:hover {
+  filter: drop-shadow(0 0 8px rgba(255,0,80,0.35));
+}
+.social-btn.youtube {
+  background: #ff0000;
+  border-color: #cc0000;
+}
+.social-btn.youtube:hover {
+  background: #cc0000;
+  filter: drop-shadow(0 0 8px rgba(255,0,0,0.35));
+}
+.social-btn.twitch {
+  background: #9146ff;
+  border-color: #772ce8;
+}
+.social-btn.twitch:hover {
+  background: #772ce8;
+  filter: drop-shadow(0 0 8px rgba(145,70,255,0.35));
+}
 
 /* Донат бокс — мягкая жёлтая пульсация (без вырвиглаз) */
 .donate-box {
@@ -123,6 +148,17 @@ st.markdown("""
 }
 .amd-title { font-weight: 800; margin-bottom: 4px; color: #ffb7a1; }
 
+/* Блок Intel-важно */
+.intel-box {
+  border: 1px dashed #2a74d6;
+  background: rgba(40, 110, 210, 0.08);
+  color: #cfe1fb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.intel-title { font-weight: 800; margin-bottom: 4px; color: #a5c4ff; }
+
 /* Кнопки в одну линию */
 .button-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 </style>
@@ -170,7 +206,7 @@ def clean_launch_options(s: str) -> str:
     if not isinstance(s, str):
         return ""
     tokens = s.split()
-    banned = {"-novid", "-nojoy"}  # для CS2 считаем неактуальными
+    banned = {"-novid", "-nojoy"}  # не используем для CS2
     tokens = [t for t in tokens if t not in banned]
     cleaned = " ".join(tokens)
     while "  " in cleaned:
@@ -183,22 +219,22 @@ def clean_launch_options(s: str) -> str:
 st.title("CS2 Конфигуратор")
 st.caption("Подбери готовые настройки: параметры игры, драйвера, запуска и Windows-оптимизации. Нет лишних флагов, всё по делу.")
 
-# Социальные ссылки (оставляем расположение; аккуратные SVG-иконки)
+# Социальные ссылки — оставлено расположение, окрашены под бренды
 st.markdown("""
 <div class="social-wrap">
   <div class="social-title">Подписывайся, чтобы следить за актуальными обновлениями и контентом автора:</div>
 
-  <a class="social-btn" href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank" rel="noopener">
+  <a class="social-btn tiktok" href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank" rel="noopener">
     <svg viewBox="0 0 24 24" fill="#fff"><path d="M12.6 3.2c.7 2.3 2.6 4.1 4.9 4.6v3c-1.6.1-3.1-.3-4.4-1.2v5.8c0 3.9-3.2 7-7.1 7-1.7 0-3.3-.6-4.5-1.6a7 7 0 0 1 8.8-10.8V3.2h2.3z"/></svg>
     TikTok
   </a>
 
-  <a class="social-btn" href="https://youtube.com/@melevik-avlaron?si=kRXrCD7GUrVnk478" target="_blank" rel="noopener">
+  <a class="social-btn youtube" href="https://youtube.com/@melevik-avlaron?si=kRXrCD7GUrVnk478" target="_blank" rel="noopener">
     <svg viewBox="0 0 24 24" fill="#fff"><path d="M21.6 7.2c.3 1.1.4 2.3.4 4s-.1 2.9-.4 4c-.3 1-1 1.7-2 2-1.1.3-5.2.4-7.6.4s-6.5-.1-7.6-.4c-1-.3-1.7-1-2-2C2.1 14.1 2 12.9 2 11.2s.1-2.9.4-4c.3-1 1-1.7 2-2C5.5 4 9.6 3.9 12 3.9s6.5.1 7.6.4c1 .3 1.7 1 2 2zM10 9.2v4l4-2-4-2z"/></svg>
     YouTube
   </a>
 
-  <a class="social-btn" href="https://m.twitch.tv/melevik/home" target="_blank" rel="noopener">
+  <a class="social-btn twitch" href="https://m.twitch.tv/melevik/home" target="_blank" rel="noopener">
     <svg viewBox="0 0 24 24" fill="#fff"><path d="M4 3h17v11.5l-4 4H12l-2.5 2.5H7V18H4V3zm3 2v9h3v2h2l2-2h3l2-2V5H7z"/></svg>
     Twitch
   </a>
@@ -267,13 +303,25 @@ if st.button("Найти настройки"):
 </div>
 """, unsafe_allow_html=True)
 
-        # Важно для AMD — не включать опасные глобальные тумблеры
+        # Важно для AMD — глобальные тумблеры
         st.markdown("""
 <div class="amd-box">
   <div class="amd-title">Важно для AMD Radeon (глобальные настройки):</div>
-  • Не ставь «Максимальная производительность» глобально — создавай профиль только для CS2, иначе видеокарта может держать частоты даже на рабочем столе.<br>
-  • Anti-Lag/Anti-Lag+ включай только в профиле CS2. Глобальное включение может давать нестабильность и конфликты с анти-читом.<br>
-  • Radeon Chill/Boost — используй осознанно в профиле игры. Глобально может резать частоты и вызывать фризы.
+  • Не включай глобально: Anti-Lag / Anti-Lag+, Chill, Boost, Enhanced Sync, Radeon Super Resolution (RSR), Virtual Super Resolution (VSR). Создавай профиль только для CS2.<br>
+  • Texture Filtering Quality ставь «Performance» в профиле CS2, глобально оставь «Standard/Quality».<br>
+  • Radeon Image Sharpening, Surface Format Optimization — включай только если понимаешь эффект и тестируешь в профиле игры.<br>
+  • Глобальный «Максимальная производительность» не нужен — видеокарта будет держать высокие частоты везде. Делай это только в профиле CS2.
+</div>
+""", unsafe_allow_html=True)
+
+        # Важно для Intel — отдельный блок
+        st.markdown("""
+<div class="intel-box">
+  <div class="intel-title">Важно для Intel Graphics / Arc:</div>
+  • В Intel Graphics Command Center / Arc Control создавай профиль для CS2. Глобально оставь «Balanced», а для CS2 включай «Performance».<br>
+  • Не включай глобально: Vertical Sync, Frame Rate Limit, Integer Scaling — делай это в профиле CS2 при необходимости.<br>
+  • На ноутбуках в Windows → Система → Дисплей → Графика назначь для CS2 «Высокая производительность» (dGPU), чтобы игра не запускалась на встроенном iGPU.<br>
+  • Если используешь апскейлеры/шарпенинг — включай их только в профиле CS2 и проверяй лаг/стабильность.
 </div>
 """, unsafe_allow_html=True)
 
@@ -294,7 +342,7 @@ if st.button("Найти настройки"):
 st.markdown("---")
 
 # -------------------------
-# КНОПКА ОБНОВЛЕНИЯ БАЗЫ (как было, но актуальная команда)
+# КНОПКА ОБНОВЛЕНИЯ БАЗЫ (как было)
 # -------------------------
 c1, c2 = st.columns([1, 3])
 with c1:
@@ -305,7 +353,7 @@ with c2:
     st.caption("Если ты обновил файл builds.csv в репозитории — нажми «Обновить базу», чтобы подтянуть актуальные данные.")
 
 # -------------------------
-# ПОДДЕРЖИ ПРОЕКТ (с мягкой жёлтой пульсацией, без кнопок «внимание»)
+# ПОДДЕРЖИ ПРОЕКТ (мягкая жёлтая пульсация, без лишних изменений)
 # -------------------------
 st.markdown("""
 <div class="donate-box">
@@ -317,3 +365,4 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
