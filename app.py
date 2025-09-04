@@ -1,5 +1,4 @@
-# app.py — CS2 Конфигуратор (RU)
-# Всё на русском, с донат-плашкой, соц.кнопками и предупреждением для AMD.
+# app.py — CS2 Конфигуратор (RU) — соцкнопки, Single/Dual RAM, тёмная карточка, кнопка обновления
 
 import pandas as pd
 import streamlit as st
@@ -14,24 +13,22 @@ st.set_page_config(
 # --------------------------- CSS СТИЛИ ---------------------------
 st.markdown("""
 <style>
-/* аккуратная типографика */
 html, body, [class*="css"]  { font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
 
-/* секция соц.кнопок */
-.social-wrap {
-  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; margin-bottom: 6px;
-}
+/* соц.кнопки — компактные, с SVG */
+.social-wrap { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 12px 0; }
 .social-btn {
-  text-decoration: none; padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: 14px;
-  display: inline-flex; align-items: center; gap: 8px; transition: transform .1s ease, box-shadow .1s ease;
-  color: white !important;
+  text-decoration: none; padding: 8px 12px; border-radius: 10px; font-weight: 700; font-size: 14px;
+  display: inline-flex; align-items: center; gap: 8px; color: #fff !important;
+  transition: transform .08s ease, box-shadow .12s ease, opacity .2s ease;
 }
-.social-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.15); }
-.tiktok { background: #000000; }
-.youtube { background: #FF0000; }
-.twitch { background: #9146FF; }
+.social-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.25); opacity: .95; }
+.social-svg { width: 16px; height: 16px; display: inline-block; }
+.tiktok  { background: #000; }
+.youtube { background: #ff0033; }
+.twitch  { background: #9146FF; }
 
-/* донат-плашка — мягкая, с лёгкой пульсацией */
+/* донат-плашка (как было) */
 .donate-card {
   position: relative;
   border-radius: 14px;
@@ -46,17 +43,10 @@ html, body, [class*="css"]  { font-family: "Inter", system-ui, -apple-system, Se
 .donate-card h3 { margin: 0 0 6px 0; font-size: 18px; }
 .donate-card p { margin: 0 0 10px 0; opacity: .92; }
 .pulse-ring {
-  position: absolute; inset: -2px;
-  border-radius: 16px;
-  pointer-events: none;
-  animation: softPulse 2.2s ease-in-out infinite;
-  border: 2px solid rgba(255, 214, 64, 0.22);
+  position: absolute; inset: -2px; border-radius: 16px; pointer-events: none;
+  animation: softPulse 2.2s ease-in-out infinite; border: 2px solid rgba(255, 214, 64, 0.22);
 }
-@keyframes softPulse {
-  0%   { box-shadow: 0 0 0 0 rgba(255,214,64,0.18); }
-  70%  { box-shadow: 0 0 0 12px rgba(255,214,64,0.06); }
-  100% { box-shadow: 0 0 0 0 rgba(255,214,64,0.00); }
-}
+@keyframes softPulse { 0%{box-shadow:0 0 0 0 rgba(255,214,64,0.18);}70%{box-shadow:0 0 0 12px rgba(255,214,64,0.06);}100%{box-shadow:0 0 0 0 rgba(255,214,64,0);} }
 .donate-link {
   display: inline-block; text-decoration: none; padding: 8px 12px; border-radius: 8px;
   font-weight: 700; background: #ffd740; color: #222 !important;
@@ -64,17 +54,18 @@ html, body, [class*="css"]  { font-family: "Inter", system-ui, -apple-system, Se
 }
 .donate-link:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(255,215,64,.35); }
 
-/* аккуратная карточка результата */
+/* карточка результата — тёмная */
 .result-card {
-  border-radius: 12px; border: 1px solid #e9e9e9; padding: 14px;
-  background: #fff;
+  border-radius: 12px; border: 1px solid #2a2a2a; padding: 14px;
+  background: #0f0f12; color: #e8e8ea;
 }
+.result-card b { color: #ffffff; }
 .code-box {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 8px; margin: 6px 0 10px 0;
-  white-space: pre-wrap; word-break: break-word;
+  background: #0b1220; color: #dbe5ff; padding: 10px 12px; border-radius: 8px; margin: 6px 0 10px 0;
+  white-space: pre-wrap; word-break: break-word; border: 1px solid #1e293b;
 }
-.small-muted { color: #667085; font-size: 13px; }
+.small-muted { color: #9aa0a6; font-size: 13px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -83,7 +74,6 @@ html, body, [class*="css"]  { font-family: "Inter", system-ui, -apple-system, Se
 def load_data() -> pd.DataFrame:
     df = pd.read_csv("builds.csv")
 
-    # Функция выравнивания столбцов к «каноническим» именам
     def ensure_col(frame: pd.DataFrame, canon: str, variants: list[str]) -> pd.DataFrame:
         for v in variants:
             if v in frame.columns:
@@ -93,11 +83,10 @@ def load_data() -> pd.DataFrame:
             frame[canon] = ""
         return frame
 
-    # Выравниваем ключевые поля
     df = ensure_col(df, "CPU", ["CPU", "Processor"])
     df = ensure_col(df, "GPU", ["GPU", "Graphics"])
     df = ensure_col(df, "RAM", ["RAM", "Memory"])
-    df = ensure_col(df, "RAM Channel", ["RAM Channel", "RAMChannel", "Memory Channel"])
+    df = ensure_col(df, "RAM Channel", ["RAM Channel", "RAMChannel", "Memory Channel", "Channel"])
     df = ensure_col(df, "Game Settings", ["Game Settings", "Settings", "GameSettings"])
     df = ensure_col(df, "Launch Options", ["Launch Options", "Launch", "Params", "LaunchOptions"])
     df = ensure_col(df, "Control Panel", ["Control Panel", "ControlPanel", "Driver Settings", "Driver"])
@@ -105,12 +94,18 @@ def load_data() -> pd.DataFrame:
     df = ensure_col(df, "FPS Estimate", ["FPS Estimate", "FPS", "FPS Range", "Estimate"])
     df = ensure_col(df, "Source", ["Source"])
 
-    # Нормализуем RAM (чтобы «16GB» → «16 GB»)
+    # Нормализация RAM
     df["RAM"] = df["RAM"].astype(str).str.replace("GB", " GB", regex=False).str.replace("  ", " ", regex=False).str.strip()
 
-    # Нормализуем RAM Channel
-    df["RAM Channel"] = df["RAM Channel"].astype(str).str.strip()
-    df.loc[df["RAM Channel"].str.len() == 0, "RAM Channel"] = "—"
+    # Нормализация канальности
+    ch = df["RAM Channel"].astype(str).str.strip().str.lower()
+    ch = ch.replace({"single":"Single", "одноканал":"Single", "1":"Single",
+                     "dual":"Dual", "двухканал":"Dual", "2":"Dual"})
+    ch = ch.where(~ch.isin(["single","dual"]), ch)  # уже норм
+    # Приводим к Title («Single», «Dual»), пустые — «—»
+    ch = ch.replace({"single":"Single", "dual":"Dual"})
+    ch = ch.where(ch.isin(["Single", "Dual"]), "—")
+    df["RAM Channel"] = ch
 
     return df
 
@@ -118,7 +113,6 @@ df = load_data()
 
 # --------------------------- УТИЛИТЫ ---------------------------
 def clean_launch_options(s: str) -> str:
-    """Удаляем неактуальные флаги для CS2: -novid, -nojoy; чистим пробелы."""
     if not isinstance(s, str):
         return ""
     tokens = s.split()
@@ -133,7 +127,7 @@ def is_amd_gpu(name: str) -> bool:
     if not isinstance(name, str):
         return False
     n = name.lower()
-    return any(k in n for k in ["amd", "radeon", " rx", " rx ", " r9", " r7", " r5"])
+    return any(k in n for k in ["amd", "radeon", " rx", " r9", " r7", " r5"])
 
 def show_amd_global_warning():
     st.warning(
@@ -144,13 +138,12 @@ def show_amd_global_warning():
         "- **FRTC (Global)** — глобальный лимит FPS повышает задержку, конфликтует с `fps_max`.\n"
         "- **V-Sync = Always On (Global)** — увеличивает задержку.\n"
         "- **Enhanced Sync (Global)** — возможны фликеры/разрывы.\n"
-        "- **RSR/VSR (Global)** — не опасно, но бывает блюрит и влияет на захват; включайте осознанно.\n"
-        "- **Tessellation Override / AF Override / MLAA (Global)** — используйте **Use application settings** и управляйте в игре.\n\n"
-        "➡️ Путь: **AMD Adrenalin → Gaming → Games → CS2** → создайте профиль и настраивайте всё там.",
+        "- **RSR/VSR (Global)** — не опасно, но может блюрить; включайте осознанно.\n"
+        "- **Tessellation/AF Override/MLAA (Global)** — держите **Use application settings** и управляйте в игре.\n\n"
+        "➡️ Путь: **AMD Adrenalin → Gaming → Games → CS2** — создайте профиль и настраивайте всё там.",
         icon="⚠️"
     )
 
-# безопасное получение поля
 def g(row: dict, key: str, fallback: str = "") -> str:
     v = row.get(key, fallback)
     return "" if pd.isna(v) else str(v)
@@ -159,14 +152,23 @@ def g(row: dict, key: str, fallback: str = "") -> str:
 st.title("⚙️ Конфигуратор CS2")
 st.caption("Подбери готовые настройки по своей сборке: параметры игры, панель драйвера, параметры запуска и оптимизации Windows.")
 
-# Социальные кнопки
+# Социальные кнопки (с SVG)
 st.subheader("📣 Подписывайся, чтобы следить за актуальными обновлениями и контентом автора")
 st.markdown(
     """
 <div class="social-wrap">
-  <a class="social-btn tiktok"   href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank">🎵 TikTok</a>
-  <a class="social-btn youtube"  href="https://youtube.com/@melevik-avlaron?si=kRXrCD7GUrVnk478" target="_blank">▶️ YouTube</a>
-  <a class="social-btn twitch"   href="https://m.twitch.tv/melevik/home" target="_blank">🟣 Twitch</a>
+  <a class="social-btn tiktok" href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank">
+    <svg class="social-svg" viewBox="0 0 24 24" fill="white"><path d="M16 8.04c1.32.98 2.94 1.57 4.7 1.57V6.3a6.88 6.88 0 0 1-4.7-1.97V4h-3.7v11.26a2.49 2.49 0 1 1-2.49-2.49c.19 0 .38.02.56.06V9.04A6.19 6.19 0 0 0 6.3 8.6a6.19 6.19 0 1 0 10.7 4.45V8.04z"/></svg>
+    TikTok
+  </a>
+  <a class="social-btn youtube" href="https://youtube.com/@melevik-avlaron?si=kRXrCD7GUrVnk478" target="_blank">
+    <svg class="social-svg" viewBox="0 0 24 24" fill="white"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.6 3.5 12 3.5 12 3.5s-7.6 0-9.4.6A3 3 0 0 0 .5 6.2 31.3 31.3 0 0 0 0 12a31.3 31.3 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.8.6 9.4.6 9.4.6s7.6 0 9.4-.6a3 3 0 0 0 2.1-2.1c.3-1.9.5-3.8.5-5.8s-.2-3.9-.5-5.8zM9.6 15.5V8.5L15.8 12l-6.2 3.5z"/></svg>
+    YouTube
+  </a>
+  <a class="social-btn twitch" href="https://m.twitch.tv/melevik/home" target="_blank">
+    <svg class="social-svg" viewBox="0 0 24 24" fill="white"><path d="M4 3l-2 4v12h5v3h3l3-3h4l5-5V3H4zm16 9l-3 3h-5l-3 3v-3H6V5h14v7zM14 7h2v5h-2V7zm-5 0h2v5H9V7z"/></svg>
+    Twitch
+  </a>
 </div>
 """,
     unsafe_allow_html=True
@@ -183,18 +185,21 @@ with col2:
 
 ram = st.selectbox("💾 Оперативная память (RAM):", sorted(df["RAM"].dropna().unique()))
 
-# Профиль канальности RAM — показываем только если колонка есть и в ней есть значения
-ram_channel_selector = None
-if "RAM Channel" in df.columns and (df["RAM Channel"] != "—").any():
-    ram_channel_selector = st.selectbox("🧠 Канальность оперативной памяти:", ["Неважно", "Single", "Dual"])
-else:
-    ram_channel_selector = "Неважно"
+# Канальность ОЗУ — всегда показываем селектор с понятными метками
+ram_ch_human = st.selectbox("🧠 Канальность ОЗУ:", ["Неважно", "Одноканал", "Двухканал"])
+# Преобразование в значения базы
+ram_ch_map = {"Одноканал": "Single", "Двухканал": "Dual"}
+
+# Кнопка обновления базы
+if st.button("🔁 Обновить базу"):
+    load_data.clear()
+    st.rerun()
 
 # --------------------------- ПОИСК ---------------------------
 if st.button("🔍 Найти настройки"):
     q = (df["CPU"] == cpu) & (df["GPU"] == gpu) & (df["RAM"] == ram)
-    if ram_channel_selector in ["Single", "Dual"] and "RAM Channel" in df.columns:
-        q = q & (df["RAM Channel"].str.lower() == ram_channel_selector.lower())
+    if ram_ch_human in ram_ch_map:
+        q = q & (df["RAM Channel"] == ram_ch_map[ram_ch_human])
 
     result = df[q]
 
@@ -212,14 +217,18 @@ if st.button("🔍 Найти настройки"):
         # Очистка параметров запуска
         launch_clean = clean_launch_options(g(row, "Launch Options"))
 
-        # Карточка результата
+        # Человекочитаемая канальность в выводе
+        ram_channel_val = g(row, "RAM Channel")
+        ram_channel_human = "Двухканал" if ram_channel_val == "Dual" else ("Одноканал" if ram_channel_val == "Single" else "")
+
+        # Карточка результата (тёмная)
         st.subheader("✅ Рекомендованные настройки")
         st.markdown(
             f"""
 <div class="result-card">
-<b>🖥 Процессор:</b> {g(row, "CPU")}  
-<b>🎮 Видеокарта:</b> {g(row, "GPU")}  
-<b>💾 ОЗУ:</b> {g(row, "RAM")}{"  ·  "+g(row, "RAM Channel") if g(row, "RAM Channel") not in ("", "—") else ""}
+<b>🖥 Процессор:</b> {g(row, "CPU")}<br/>
+<b>🎮 Видеокарта:</b> {g(row, "GPU")}<br/>
+<b>💾 ОЗУ:</b> {g(row, "RAM")}{("  ·  "+ram_channel_human) if ram_channel_human else ""}
 
 <b>🎮 Настройки игры:</b><br/>
 {g(row, "Game Settings")}
@@ -233,18 +242,18 @@ if st.button("🔍 Найти настройки"):
 <b>🪟 Оптимизация Windows (по желанию):</b><br/>
 {g(row, "Windows Optimization")}
 
-<b>📊 Ожидаемый FPS:</b> {g(row, "FPS Estimate", "—")}  
+<b>📊 Ожидаемый FPS:</b> {g(row, "FPS Estimate", "—")}<br/>
 <span class="small-muted"><b>🔗 Источник:</b> {g(row, "Source", "—")}</span>
 </div>
 """,
             unsafe_allow_html=True
         )
 
-        # Удобный текст-профиль + скачивание
+        # Профиль для скачивания
         profile_txt = (
             f"CPU: {g(row,'CPU')}\n"
             f"GPU: {g(row,'GPU')}\n"
-            f"RAM: {g(row,'RAM')} {('('+g(row,'RAM Channel')+')') if g(row,'RAM Channel') not in ('','—') else ''}\n\n"
+            f"RAM: {g(row,'RAM')} {('('+ram_channel_human+')') if ram_channel_human else ''}\n\n"
             f"[Game Settings]\n{g(row,'Game Settings')}\n\n"
             f"[Launch Options]\n{launch_clean}\n\n"
             f"[Control Panel]\n{g(row,'Control Panel')}\n\n"
@@ -256,7 +265,7 @@ if st.button("🔍 Найти настройки"):
 
 st.markdown("---")
 
-# --------------------------- ДОНАТ-ПЛАШКА ---------------------------
+# --------------------------- ДОНАТ-ПЛАШКА (без изменений) ---------------------------
 st.markdown(
     """
 <div class="donate-card">
