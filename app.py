@@ -1,281 +1,300 @@
+# -*- coding: utf-8 -*-
 import re
 import pandas as pd
 import streamlit as st
 
-# ---------- базовая настройка страницы ----------
-st.set_page_config(page_title="CS2 Конфигуратор", page_icon="🎮", layout="wide")
+st.set_page_config(page_title="CS2 Конфигуратор", page_icon="🎮", layout="centered")
 
-# ---------- стили (соц-кнопки, донат, черный блок результатов) ----------
+# ------------------------------
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ------------------------------
+
+def canon_ram(s: str) -> str:
+    s = str(s or "").lower().replace("гб", "gb")
+    m = re.search(r'(\d+)', s)
+    num = m.group(1) if m else ""
+    return f"{num}gb" if num else s.replace(" ", "")
+
+def canon_cpu(s: str) -> str:
+    """
+    Приводим ввод к семейному ключу, как в builds.csv:
+    i3-10100F -> i3 10th gen
+    i5-12400F -> i5 12th gen
+    Ryzen 5 5600 -> ryzen 5 5000
+    """
+    x = (s or "").lower()
+    x = re.sub(r'\(.*?\)|™|®', '', x)
+    x = x.replace("processor", "").replace("core", "")
+    x = x.replace("intel", "").replace("amd", "").strip()
+    x = re.sub(r'\s+', ' ', x)
+
+    # Intel Core i3/i5/i7/i9
+    m = re.search(r'(i[3579])[\s\-]*([0-9]{3,5})?', x)
+    if m:
+        fam = m.group(1).lower()
+        digits = m.group(2)
+        gen = None
+        # "10th/11th/12th gen" в тексте
+        m2 = re.search(r'([0-9]{1,2})\s*(st|nd|rd|th)?\s*gen', x)
+        if m2:
+            gen = int(m2.group(1))
+        # по цифрам модели
+        if gen is None and digits:
+            if len(digits) >= 5:      # 10100, 12400, 14600 => 10/12/14 gen
+                gen = int(digits[:2])
+            elif len(digits) == 4:    # 8700, 9400 => 8/9 gen
+                gen = int(digits[0])
+            elif len(digits) == 3:    # 710 => 7 gen (на крайний случай)
+                gen = int(digits[0])
+
+        if gen:
+            return f"{fam} {gen}th gen"
+        # вдруг уже было "i5 12th gen"
+        if "gen" in x:
+            keep = [w for w in x.split() if w in ["i3", "i5", "i7", "i9", "10th", "11th", "12th", "13th", "14th", "gen"]]
+            if keep:
+                return " ".join(keep)
+        return fam  # fallback
+
+    # AMD Ryzen
+    m = re.search(r'ryzen\s*([3579])\s*-?\s*([0-9]{3,4})?', x)
+    if m:
+        fam = m.group(1)  # "5" из "Ryzen 5"
+        digits = m.group(2)
+        gen = None
+        if digits:
+            # 5600, 3600, 2600...
+            gen = int(digits[0]) * 1000
+        if gen:
+            label = {1: "1000", 2: "2000", 3: "3000", 4: "4000", 5: "5000", 7: "7000"}.get(int(str(gen)[0]), str(gen))
+            return f"ryzen {fam} {label}"
+        # вдруг уже вида "ryzen 5 5000"
+        m2 = re.search(r'ryzen\s*[3579]\s*[1275]000', x)
+        if m2:
+            return re.sub(r'\s+', ' ', m2.group(0))
+        return f"ryzen {fam}"
+
+    return re.sub(r'\s+', ' ', x).strip()
+
+def canon_gpu(s: str) -> str:
+    """
+    Приводим GPU к ключу:
+    "GeForce RTX 3060 Ti 8GB" -> "rtx 3060 ti"
+    "Radeon RX 580" -> "rx 580"
+    """
+    x = (s or "").lower()
+    x = x.replace("nvidia", "").replace("geforce", "").replace("amd", "").replace("radeon", "")
+    x = re.sub(r'\s+', ' ', x).strip()
+
+    variant = ""
+    if "super" in x:
+        variant = " super"
+    elif re.search(r'\bti\b', x) or "ti" in x.replace(" ", ""):
+        variant = " ti"
+    elif re.search(r'\bxt\b', x):
+        variant = " xt"
+
+    fam = ""
+    if "rtx" in x:
+        fam = "rtx"
+    elif "gtx" in x:
+        fam = "gtx"
+    elif "rx" in x:
+        fam = "rx"
+
+    m = re.search(r'(\d{3,4})', x)
+    num = m.group(1) if m else ""
+
+    if fam and num:
+        return f"{fam} {int(num)}{variant}"
+
+    return x
+
+def ensure_col(df: pd.DataFrame, canon: str, variants: list[str]) -> pd.DataFrame:
+    for v in variants:
+        if v in df.columns:
+            df[canon] = df[v]
+            break
+    if canon not in df.columns:
+        df[canon] = ""
+    return df
+
+def make_keys(df: pd.DataFrame) -> pd.DataFrame:
+    df["RAM"] = (
+        df["RAM"].astype(str)
+        .str.replace("ГБ", "GB", regex=False)
+        .str.replace("GB", " GB", regex=False)
+        .str.replace("  ", " ", regex=False)
+        .str.strip()
+    )
+    df["_cpu_key"] = df["CPU"].map(canon_cpu)
+    df["_gpu_key"] = df["GPU"].map(canon_gpu)
+    df["_ram_key"] = df["RAM"].map(canon_ram)
+    return df
+
+@st.cache_data
+def load_data():
+    df = pd.read_csv("builds.csv")
+    # выравниваем колонки к канону
+    df = ensure_col(df, "Game Settings", ["Game Settings", "Settings", "GameSettings"])
+    df = ensure_col(df, "Launch Options", ["Launch Options", "Launch", "Params", "LaunchOptions"])
+    df = ensure_col(df, "Control Panel", ["Control Panel", "ControlPanel", "Driver Settings", "Driver"])
+    df = ensure_col(df, "Windows Optimization", ["Windows Optimization", "Windows Optimizations", "Windows", "Windows Opt"])
+    df = ensure_col(df, "FPS Estimate", ["FPS Estimate", "FPS", "FPS Range", "Estimate"])
+    df = ensure_col(df, "Source", ["Source"])
+    df = make_keys(df)
+    return df
+
+builds = load_data()
+
+# ------------------------------
+# UI
+# ------------------------------
+st.title("⚙️ CS2 Конфигуратор (онлайн)")
+st.caption("Подбери готовые настройки: игра, панель драйвера, параметры запуска и базовые оптимизации Windows. Поиск устойчив к разным написаниям.")
+
+# Ввод пользователя (оставляю привычный вид)
+col1, col2, col3 = st.columns([1,1,1])
+with col1:
+    cpu_in = st.text_input("🖥 Процессор", placeholder="Intel i5-12400F")
+with col2:
+    gpu_in = st.text_input("🎮 Видеокарта", placeholder="RTX 3060 Ti")
+with col3:
+    ram_in = st.text_input("💾 ОЗУ", placeholder="16 GB")
+
+st.markdown("---")
+
+# Блок доната (мягкая жёлтая пульсация)
 st.markdown("""
+<div style="padding:12px;border-radius:10px;background:linear-gradient(90deg,#FFF3B0,#FFE066,#FFF3B0);
+            animation:pulse 2s ease-in-out infinite; text-align:center;">
+  <b>Каждый, кто поддержит рублём — попадёт в следующий ролик (титры благодарности)!</b><br>
+  👉 <a href="https://www.donationalerts.com/r/melevik" target="_blank">Поддержать на DonatPay / DonationAlerts</a>
+</div>
 <style>
-/* контейнер результата на чёрном фоне */
-.result-box {
-  background: #0f1116;
-  border: 1px solid #222;
-  border-radius: 10px;
-  padding: 16px 18px;
-  color: #e8e8e8;
-  line-height: 1.55;
-  font-size: 15px;
-}
-
-/* ряд соц-кнопок */
-.social-row { display:flex; gap:10px; flex-wrap:wrap; margin:8px 0 2px 0; }
-.btn {
-  display:inline-block; padding:10px 14px; border-radius:8px; text-decoration:none;
-  color:#fff; font-weight:600; font-size:14px;
-}
-.btn-yt { background:#FF0000; }
-.btn-tt { background:#000000; border:1px solid #333; }
-.btn-tw { background:#9146FF; }
-
-/* донат-плашка с мягкой пульсацией жёлтого */
-.donate-box {
-  position: relative;
-  background: linear-gradient(135deg, #2a2200, #1a1600);
-  border: 1px solid #4d3b00;
-  border-radius: 12px;
-  padding: 14px 16px;
-  color: #ffd666;
-  margin-top: 10px;
-  overflow: hidden;
-}
-.donate-pulse {
-  position: absolute;
-  inset: -40%;
-  background: radial-gradient(circle, rgba(255, 223, 0, 0.16) 0%, rgba(0,0,0,0) 60%);
-  animation: pulse 2.8s ease-in-out infinite;
-  pointer-events: none;
-}
 @keyframes pulse {
-  0% { transform: scale(0.9); opacity: 0.35; }
-  50% { transform: scale(1.05); opacity: 0.55; }
-  100% { transform: scale(0.9); opacity: 0.35; }
-}
-
-/* предупреждения */
-.warn {
-  background:#1b1b1b; border:1px solid #3a3a3a; color:#ffec99;
-  padding:10px 12px; border-radius:8px; margin:8px 0;
+  0% { filter: brightness(0.98); }
+  50% { filter: brightness(1.06); }
+  100% { filter: brightness(0.98); }
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- загрузка базы и нормализация ----------
-@st.cache_data
-def load_builds():
-    df = pd.read_csv("builds.csv")
-    # канонизируем основные колонки (если имена отличаются)
-    def ensure_col(df, canon, variants):
-        for v in variants:
-            if v in df.columns:
-                df[canon] = df[v]
-                break
-        if canon not in df.columns:
-            df[canon] = ""
-        return df
-
-    df = ensure_col(df, "CPU", ["CPU","cpu","Процессор"])
-    df = ensure_col(df, "GPU", ["GPU","gpu","Видеокарта"])
-    df = ensure_col(df, "RAM", ["RAM","ram","ОЗУ"])
-
-    df = ensure_col(df, "Game Settings", ["Game Settings","Settings","Графика"])
-    df = ensure_col(df, "Launch Options", ["Launch Options","Params","Параметры запуска"])
-    df = ensure_col(df, "Control Panel", ["Control Panel","Driver Settings","Панель драйвера"])
-    df = ensure_col(df, "Windows Optimization", ["Windows Optimization","Windows","Оптимизация Windows"])
-    df = ensure_col(df, "FPS Estimate", ["FPS Estimate","FPS","Ожидаемый FPS"])
-    df = ensure_col(df, "Source", ["Source","Источник"])
-
-    # унифицируем RAM → '16 GB'
-    df["RAM"] = (df["RAM"].astype(str)
-                 .str.replace("\u200b","", regex=False)
-                 .str.replace("\u00a0"," ", regex=False)  # NBSP
-                 .str.lower()
-                 .str.replace("гб","gb")
-                 .str.replace(" ", "")
-                 .str.replace("gb"," GB")
-                 )
-    # извлекаем число (например, '16 GB' → '16 GB', '16' → '16 GB')
-    def normalize_ram_display(s):
-        m = re.search(r'(\d+)', str(s))
-        if not m: return "8 GB"
-        return f"{m.group(1)} GB"
-
-    df["RAM"] = df["RAM"].apply(normalize_ram_display)
-
-    # нормализатор строк для ключей
-    def norm(s: str) -> str:
-        s = str(s)
-        s = s.replace("\u200b","").replace("\u00a0"," ")
-        s = s.lower()
-        s = s.replace("®","").replace("(tm)","").replace("™","")
-        # приведение брендов и суффиксов
-        s = s.replace("geforce", "").replace("nvidia", "")
-        s = s.replace("radeon", "").replace("amd", "")
-        s = s.replace("intel", "").replace("core", "")
-        s = s.replace("super", "super").replace("ti", "ti")
-        s = s.replace("гб","gb")
-        # убрать лишние символы
-        s = re.sub(r'[^a-z0-9]+', '', s)
-        return s
-
-    # ключи
-    df["key_cpu"] = df["CPU"].apply(norm)
-    df["key_gpu"] = df["GPU"].apply(norm)
-    df["key_ram"] = df["RAM"].apply(norm)
-    return df
-
-builds = load_builds()
-
-# ---------- шапка ----------
-st.title("⚙️ CS2 Конфигуратор (онлайн)")
-st.caption("Подбери готовые настройки: игра, панель драйвера, параметры запуска и базовые оптимизации Windows. Поиск устойчив к регистру/пробелам и вариантам написания.")
-
-# ---------- формы выбора ----------
-col1, col2, col3 = st.columns([1,1,1])
-with col1:
-    cpu_choice = st.selectbox("🖥 Процессор", sorted(builds["CPU"].dropna().unique()))
-with col2:
-    gpu_choice = st.selectbox("🎮 Видеокарта", sorted(builds["GPU"].dropna().unique()))
-with col3:
-    ram_choice = st.selectbox("💾 ОЗУ", sorted(builds["RAM"].dropna().unique()))
-
-# ---------- предупреждение про ОЗУ канал ----------
-st.markdown('<div class="warn">ℹ️ Напоминание: в одноканальном режиме (1×) FPS ниже, чем в двухканальном (2×). Для ноутбуков это особенно заметно.</div>', unsafe_allow_html=True)
-
-# ---------- соцсети ----------
-st.markdown('<div class="social-row">', unsafe_allow_html=True)
-st.markdown('<a class="btn btn-tt" href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank">TikTok</a>', unsafe_allow_html=True)
-st.markdown('<a class="btn btn-yt" href="https://youtube.com/@melevik-avlaron?si=kRXrCD7GUrVnk478" target="_blank">YouTube</a>', unsafe_allow_html=True)
-st.markdown('<a class="btn btn-tw" href="https://m.twitch.tv/melevik/home" target="_blank">Twitch</a>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# ---------- донат (с мягкой пульсацией) ----------
+# Соцсети в цветах площадок
 st.markdown("""
-<div class="donate-box">
-  <div class="donate-pulse"></div>
-  <b>Каждый, кто поддержит рублём — попадёт в следующий ролик (титры благодарности)!</b><br>
-  <a href="https://www.donationalerts.com/r/melevik" target="_blank" class="btn" style="background:#f1c40f; color:#222; margin-top:8px;">Поддержать на DonatPay / DonationAlerts</a>
+<div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+  <a href="https://www.tiktok.com/@melevik?_t=ZS-8zQkTQnA4Pf&_r=1" target="_blank"
+     style="background:#000; color:#fff; padding:8px 12px; border-radius:8px; text-decoration:none;">TikTok</a>
+  <a href="https://youtube.com/@melevik-avlaron?si=kRXrCD7GUrVnk478" target="_blank"
+     style="background:#FF0000; color:#fff; padding:8px 12px; border-radius:8px; text-decoration:none;">YouTube</a>
+  <a href="https://m.twitch.tv/melevik/home" target="_blank"
+     style="background:#9146FF; color:#fff; padding:8px 12px; border-radius:8px; text-decoration:none;">Twitch</a>
 </div>
 """, unsafe_allow_html=True)
 
+# Встраивание Twitch/YouTube
+with st.expander("🎥 Twitch — прямая трансляция (если идёт)"):
+    st.components.v1.iframe(
+        "https://player.twitch.tv/?channel=melevik&parent=streamlit.app",
+        height=380, scrolling=True
+    )
+with st.expander("📺 YouTube — последнее видео (не шортс)"):
+    st.components.v1.iframe(
+        "https://www.youtube.com/embed?listType=user_uploads&list=melevik-avlaron",
+        height=380, scrolling=True
+    )
+
 st.markdown("---")
 
-# ---------- функции подбора ----------
-def norm(s: str) -> str:
-    s = str(s)
-    s = s.replace("\u200b","").replace("\u00a0"," ")
-    s = s.lower().replace("®","").replace("(tm)","").replace("™","")
-    s = s.replace("geforce","").replace("nvidia","")
-    s = s.replace("radeon","").replace("amd","")
-    s = s.replace("intel","").replace("core","")
-    s = s.replace("гб","gb")
-    s = re.sub(r'[^a-z0-9]+', '', s)
-    return s
-
-def find_exact(df, cpu, gpu, ram):
-    kcpu, kgpu, kram = norm(cpu), norm(gpu), norm(ram)
-    hit = df[(df["key_cpu"] == kcpu) & (df["key_gpu"] == kgpu) & (df["key_ram"] == kram)]
-    return hit
-
-def find_close(df, cpu, gpu, ram, limit=5):
-    # слабая фильтрация по серии CPU/GPU и объему RAM
-    kcpu, kgpu, kram = norm(cpu), norm(gpu), norm(ram)
-    base = df.copy()
-    # приоритизируем по совпадениям
-    base["score"] = 0
-    base.loc[base["key_cpu"].str.contains(re.escape(kcpu[:6]), na=False), "score"] += 2
-    base.loc[base["key_gpu"].str.contains(re.escape(kgpu[:6]), na=False), "score"] += 2
-    base.loc[base["key_ram"] == kram, "score"] += 1
-    out = base.sort_values(["score"], ascending=False).head(limit)
-    return out.drop(columns=["score"])
-
-# ---------- поиск ----------
+# Поиск
 if st.button("🔍 Найти настройки"):
-    exact = find_exact(builds, cpu_choice, gpu_choice, ram_choice)
+    cpu_key = canon_cpu(cpu_in)
+    gpu_key = canon_gpu(gpu_in)
+    ram_key = canon_ram(ram_in)
 
-    # подсветки по вендору
-    gpu_str = str(gpu_choice).lower()
-    if "rx" in gpu_str or "radeon" in gpu_str or "amd" in gpu_str:
-        st.markdown('<div class="warn">⚠️ AMD Radeon: в глобальных настройках не включайте *Radeon Boost/Chill/Enhanced Sync* для всей системы — задавайте профиль только для CS2, чтобы не словить артефакты и нестабильный FPS.</div>', unsafe_allow_html=True)
-    if "intel" in gpu_str:
-        st.markdown('<div class="warn">ℹ️ Intel iGPU: убедитесь, что CS2 использует дискретную GPU (если есть). В режиме только iGPU держите низкие пресеты и 720p.</div>', unsafe_allow_html=True)
+    # строгий матч по ключам
+    exact = builds[(builds["_cpu_key"] == cpu_key) &
+                   (builds["_gpu_key"] == gpu_key) &
+                   (builds["_ram_key"] == ram_key)]
 
-    st.markdown("---")
-    if not exact.empty:
-        row = exact.iloc[0]
+    if exact.empty:
+        # Похожие варианты (та же серия CPU и та же видеокарта или ближайшие)
+        family_cpu = " ".join(cpu_key.split()[:2])  # i5 12th, ryzen 5 ...
+        near = builds[
+            (builds["_cpu_key"].str.contains(family_cpu, na=False)) &
+            (builds["_gpu_key"] == gpu_key)
+        ]
+        # если пусто, попробуем ослабить GPU до семейства без суффиксов
+        if near.empty:
+            base_gpu = gpu_key.replace(" ti", "").replace(" super", "").replace(" xt", "")
+            near = builds[
+                (builds["_cpu_key"].str.contains(family_cpu, na=False)) &
+                (builds["_gpu_key"].str.startswith(base_gpu))
+            ]
 
-        # очистка неактуальных флагов у запуска (на всякий случай)
-        launch_raw = str(row["Launch Options"])
-        tokens = launch_raw.split()
-        banned = {"-novid", "-nojoy"}  # для CS2 не нужны
-        launch_clean = " ".join([t for t in tokens if t not in banned]).strip()
-
-        st.subheader("✅ Рекомендованные настройки")
-        st.markdown('<div class="result-box">', unsafe_allow_html=True)
-        st.markdown(f"""
-**🖥 Процессор:** {row['CPU']}  
-**🎮 Видеокарта:** {row['GPU']}  
-**💾 ОЗУ:** {row['RAM']}
+        if near.empty:
+            st.warning("Похоже, точной записи нет. Вот близкие варианты по серии/видеокарте (5 шт.):")
+            st.dataframe(builds[["CPU","GPU","RAM","Game Settings","Launch Options","Control Panel","Windows Optimization","FPS Estimate"]].head(5))
+        else:
+            st.info("Точной записи нет, но нашлись близкие по серии. Ниже — лучшая из них.")
+            row = near.iloc[0].to_dict()
+            launch_clean = " ".join([t for t in str(row.get("Launch Options","")).split() if t not in {"-novid","-nojoy"}])
+            st.subheader("✅ Рекомендованные настройки")
+            st.markdown(f"""
+**🖥 Процессор:** {row.get('CPU','')}
+**🎮 Видеокарта:** {row.get('GPU','')}
+**💾 ОЗУ:** {row.get('RAM','')}
 
 **🎮 Настройки игры:**  
-{row['Game Settings']}
+{row.get('Game Settings','')}
 
 **🚀 Параметры запуска (очищенные):**  
 `{launch_clean}`
 
 **🎛 Панель драйвера (NVIDIA/AMD):**  
-{row['Control Panel']}
+{row.get('Control Panel','')}
 
 **🪟 Оптимизация Windows (по желанию):**  
-{row['Windows Optimization']}
+{row.get('Windows Optimization','')}
 
-**📊 Ожидаемый FPS:** {row['FPS Estimate']}  
-**🔗 Источник:** {row['Source']}
+**📊 Ожидаемый FPS:** {row.get('FPS Estimate','—')}
+**🔗 Источник:** {row.get('Source','')}
 """)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # скачать профиль
-        profile_txt = (
-            f"CPU: {row['CPU']}\nGPU: {row['GPU']}\nRAM: {row['RAM']}\n\n"
-            f"[Game Settings]\n{row['Game Settings']}\n\n"
-            f"[Launch Options]\n{launch_clean}\n\n"
-            f"[Control Panel]\n{row['Control Panel']}\n\n"
-            f"[Windows Optimization]\n{row['Windows Optimization']}\n\n"
-            f"FPS Estimate: {row['FPS Estimate']}\nSource: {row['Source']}\n"
-        )
-        st.download_button("💾 Скачать профиль (.txt)", data=profile_txt, file_name="cs2_profile.txt")
-
     else:
-        st.warning("Похоже, точной записи нет. Вот близкие варианты:")
-        close = find_close(builds, cpu_choice, gpu_choice, ram_choice, limit=6)
-        for _, r in close.iterrows():
-            st.markdown('<div class="result-box">', unsafe_allow_html=True)
-            st.markdown(f"""
-**🖥 Процессор:** {r['CPU']}  
-**🎮 Видеокарта:** {r['GPU']}  
-**💾 ОЗУ:** {r['RAM']}
+        row = exact.iloc[0].to_dict()
+        launch_clean = " ".join([t for t in str(row.get("Launch Options","")).split() if t not in {"-novid","-nojoy"}])
+        st.subheader("✅ Рекомендованные настройки")
+        st.markdown(f"""
+**🖥 Процессор:** {row.get('CPU','')}
+**🎮 Видеокарта:** {row.get('GPU','')}
+**💾 ОЗУ:** {row.get('RAM','')}
 
-**🎮 Настройки игры:** {r['Game Settings']}  
-**🚀 Параметры запуска:** `{str(r['Launch Options']).strip()}`  
-**🎛 Панель драйвера:** {r['Control Panel']}  
-**🪟 Windows:** {r['Windows Optimization']}  
-**📊 FPS:** {r['FPS Estimate']} · **Источник:** {r['Source']}
+**🎮 Настройки игры:**  
+{row.get('Game Settings','')}
+
+**🚀 Параметры запуска (очищенные):**  
+`{launch_clean}`
+
+**🎛 Панель драйвера (NVIDIA/AMD):**  
+{row.get('Control Panel','')}
+
+**🪟 Оптимизация Windows (по желанию):**  
+{row.get('Windows Optimization','')}
+
+**📊 Ожидаемый FPS:** {row.get('FPS Estimate','—')}
+**🔗 Источник:** {row.get('Source','')}
 """)
-            st.markdown('</div>', unsafe_allow_html=True)
+
+    # Напоминание про одноканал/двухканал
+    st.info("ℹ️ Внимание: при **одноканальной** ОЗУ FPS обычно ниже, при **двухканальной** — выше. Для стабильности и кадров — ставьте двухканал (2×8, 2×16 и т.д.).")
+
+    # Опасные тумблеры драйверов — аккуратно
+    with st.expander("⚠️ Предупреждение по глобальным настройкам драйверов (AMD/NVIDIA/Intel)"):
+        st.markdown("""
+- **AMD Radeon Software**: не включайте глобально агрессивные оптимизации (Shader Cache принудительно «AMD Optimized», FRTC, Chill) — лучше на профиль игры.  
+- **NVIDIA**: Low Latency Mode, Max Perf — ок, но не заставляйте глобально V-Sync/Aniso/FXAA.  
+- **Intel ARC/iGPU**: держите обновления драйверов, не включайте глобальные эксперименты.
+""")
 
 st.markdown("---")
-
-# ---------- Twitch (онлайн) ----------
-st.subheader("🎥 Twitch — прямая трансляция (если идёт)")
-st.components.v1.iframe(
-    "https://player.twitch.tv/?channel=melevik&parent=share.streamlit.io&muted=true",
-    height=360, scrolling=False
-)
-
-# ---------- YouTube (последнее полноценное видео) ----------
-st.subheader("📺 YouTube — последнее видео (не шортс)")
-st.components.v1.iframe(
-    "https://www.youtube.com/embed?listType=user_uploads&list=melevik-avlaron",
-    height=360, scrolling=False
-)
+st.caption("Подписывайся, чтобы следить за актуальными обновлениями и контентом автора.")
